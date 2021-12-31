@@ -1,0 +1,457 @@
+---
+title: "Google Data Analyst Capstone Project"
+author: "Maryam A B"
+date: "5 December 2021"
+output:
+  bookdown::html_document2:
+  fig_caption: yes
+  number_sections: yes
+---
+***Scenario***
+You are a junior data analyst working in the marketing analyst team at Cyclistic, a bike-share company in Chicago. The director of marketing believes the company’s future success depends on maximizing the number of annual memberships. Therefore, your team wants to understand how casual riders and annual members use Cyclistic bikes differently. From these insights, your team will design a new marketing strategy to convert casual riders into annual members. But first, Cyclistic executives must approve your recommendations, so they must be backed up with compelling data insights and professional data
+visualizations.
+
+***Characters and teams***
+Cyclistic - A bike-share program that features more than 5,800 bicycles and 600 docking stations. Cyclistic sets itself
+apart by also offering reclining bikes, hand tricycles, and cargo bikes, making bike-share more inclusive to people with
+disabilities and riders who can’t use a standard two-wheeled bike. The majority of riders opt for traditional bikes; about 8% of riders use the assistive options. Cyclistic users are more likely to ride for leisure, but about 30% use them to commute to work each day.
+
+Lily Moreno - The director of marketing and your manager. Moreno is responsible for the development of campaigns
+and initiatives to promote the bike-share program. These may include email, social media, and other channels.
+
+Cyclistic marketing analytics team - A team of data analysts who are responsible for collecting, analyzing, and reporting data that helps guide Cyclistic marketing strategy. You joined this team six months ago and have been busy learning about Cyclistic’s mission and business goals — as well as how you, as a junior data analyst, can help Cyclistic achieve them.
+
+Cyclistic executive team - The notoriously detail-oriented executive team will decide whether to approve the
+recommended marketing program
+
+***Question to answer*** 
+How do annual members and casual riders use Cyclistic bikes differently ? 
+
+***Business Task*** 
+To analyze data and find out how annual members and casual riders use Cyclistic bikes differently then make recommendations on how to convert casual riders into annual members.
+
+I am using R for this analysis. 
+
+
+***Data Source and Limitations***
+The data was downloaded from (https://divvy-tripdata.s3.amazonaws.com/index.html)
+The data has been made available by Motivate International Inc. under this license(https://www.divvybikes.com/data-license-agreement).
+The data-privacy issues prohibit me from using riders’ personally identifiable information. I won’t be able to connect pass purchases to credit card numbers to determine if casual riders live in the Cyclistic service area or if they have purchased multiple single passes. 
+This is a public data that you can use to explore how different customer types are using Cyclistic bikes. I will be using the Data sets from May 2020 - April 2021.
+
+
+## Load packages
+Loading required packages...
+```{r}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(dplyr)
+library(skimr)
+```
+
+## Import and Merge Datasets
+All 12 months of data have been saved in csv format in a folder. They will be imported and merged into a single data frame.
+
+```{r}
+Datasets <- list.files(path = "C:/Users/TRANSSNET/Documents/R/Capstone", 
+                       pattern= "*.csv", recursive = TRUE,
+                       full.names = TRUE)
+
+cyclistic <- do.call(rbind, lapply(Datasets, read.csv))
+```
+
+## Getting to know the data
+ Before cleaning the data, take some time to explore it
+
+```{r}
+head(cyclistic)
+str(cyclistic)
+skim(cyclistic) 
+```
+
+Skimming  through all the variables shows there are some missing values in the data set.
+The missing values are from the station Id, Latitude and Longitude columns. These are columns that I will not be using for the analysis. I will remove them in the next section.
+
+## Cleaning up data in preparation forAnalysis
+
+#### Remove Unused columns 
+```{r}
+# Remove Columns that won't be used in the analysis 
+cyclistic_no_unused <- cyclistic %>%
+  select(-c(start_lat, start_lng, end_lat, end_lng,start_station_id,
+            end_station_id))
+skim(cyclistic_no_unused)
+```
+
+#### Rename some Columns 
+Rename some columns for easier readability 
+```{r}
+cyclistic_renamed <- cyclistic_no_unused %>%
+  rename(ride_type = rideable_type, user_type = member_casual)
+```
+
+#### Remove Duplicates
+Remove duplicate values based on ride_id. Since we don't have personal information about the riders. I am assuming that ride_id is unique to each rider.
+```{r}
+cyclistic_no_duplicates <-
+  cyclistic_renamed[!duplicated(cyclistic_renamed$ride_id),]
+```
+
+#### Change datetime columns to Date time format
+```{r}
+cyclistic_no_duplicates$started_at <-
+  as.POSIXct(cyclistic_no_duplicates$started_at, format = "%Y-%m-%d %H:%M:%S")
+
+cyclistic_no_duplicates$ended_at <- 
+  as.POSIXct(cyclistic_no_duplicates$ended_at, format = "%Y-%m-%d %H:%M:%S") 
+```
+
+#### Final check to see all columns are in proper format and no missing values
+```{r}
+str(cyclistic_no_duplicates) # Checking to see the format - now in datetime
+skim(cyclistic_no_duplicates) # No missing values. Data is clean
+```
+
+## Manipulating the data
+New variables that will be used in the analysis will be created. 
+
+#### Calculate length of each ride 
+```{r}
+# This will be done by subtracting the column "started_at" from the column "ended_at". The time is changed to a numeric value for the calculation and also calculated in hrs by dividing it by 3600 
+
+cyclistic_cleaned <- cyclistic_no_duplicates %>%
+  mutate(ride_length_hrs = as.numeric(cyclistic_no_duplicates$ended_at -
+                                      cyclistic_no_duplicates$started_at)/3600)
+```
+
+#### Separate datetime column into date, month and Day of week for each ride
+```{r}
+# Start date of trip
+cyclistic_cleaned$start_date <- 
+  as.Date(cyclistic_cleaned$started_at) #The default format is yyyy-mm-dd
+
+# Start month of trip 
+cyclistic_cleaned$start_month <- 
+  months.Date(cyclistic_cleaned$start_date)
+
+# Day of week of trip 
+cyclistic_cleaned$day_of_week <-
+  weekdays.Date(cyclistic_cleaned$start_date)
+```
+
+#### Get start hour of rides
+Start hour will help us determine what time of day a trip is taken
+
+```{r}
+cyclistic_cleaned$start_hr <-
+  format(cyclistic_cleaned$started_at, format =  "%H")
+
+# Change start hour column to numeric values 
+cyclistic_cleaned$start_hr <-
+  as.numeric(cyclistic_cleaned$start_hr)
+```
+
+#### Find time of day of ride - Morning, Afternoon, Evening or Night
+```{r}
+cyclistic_cleaned$time_of_day <- 
+  with(cyclistic_cleaned, 
+       ifelse (start_hr >=5 & start_hr <= 11, "Morning",
+               ifelse (start_hr > 11 & start_hr <= 16, "Afternoon",
+                       ifelse(start_hr > 16 & start_hr <= 19,
+                              "Evening", "Night"))))
+```
+
+## Analyze
+In this step I will analyze the data for any trends that will help me answer the business task.
+
+#### Data Distribution by User Type
+Which % of users are Members and which are Casual
+```{r}
+cyclistic_cleaned %>% 
+    group_by(user_type) %>% 
+    summarise(count = length(ride_id),
+              '%' = (length(ride_id) / nrow(cyclistic_cleaned)) * 100)
+
+ggplot(cyclistic_cleaned) +
+  geom_bar ( aes(user_type, fill = user_type)) +
+  labs(x = "User Type", title = "Chart 01 - Membership Distribution")
+```
+
+From the table and plot above we can see that more users are members. About ***59%*** are members while ***41%*** are casual riders.
+
+
+#### Data Distribution by Month
+This will help us know how rides are distributed monthly.  
+```{r}
+cyclistic_cleaned$start_month = factor(cyclistic_cleaned$start_month, levels =
+                                           c("May", "June", "July", "August",
+                                        "September","October", "November",
+                                        "December", "January",
+                                        "February", "March", "April"))
+cyclistic_cleaned %>%
+    group_by(start_month) %>%
+    summarise(count = length(ride_id),
+              '%' = (length(ride_id) / nrow(cyclistic_cleaned)) * 100,
+              'members %' = (sum(user_type == "member") / length(ride_id)) *
+                100,
+              'casual %' = (sum(user_type == "casual") / length(ride_id)) *
+                100,)
+
+ggplot (cyclistic_cleaned) +
+    geom_bar(aes(start_month)) + facet_wrap(~user_type) +
+  labs(x = "Month", 
+       title = "Chart 02 - Distribution by month") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+
+The table and plot above show that - 
+
+- For both casuals and members, peaks month for rides are  ***July, August and September*** with August being the highest of the three months. The cold (winter) months have the least number of rides taken ***December, January and February***
+
+- For all the months, we have more Members riding than Casuals. We will find out the reason for this with further analysis.
+
+#### Day trend and ride type analysis
+How are rides distributed throughout the week ?
+
+Which ride types are famous among riders? 
+```{r}
+cyclistic_cleaned$day_of_week = factor(cyclistic_cleaned$day_of_week, levels =
+                                           c("Monday", "Tuesday", "Wednesday",
+                                             "Thursday",
+                                        "Friday","Saturday", "Sunday"))
+
+ggplot (cyclistic_cleaned) +
+  geom_bar(aes(day_of_week, fill = ride_type)) + facet_wrap(~user_type) +
+  labs(x = "Weekday", title="Chart 03 - Distribution by weekday") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+The plot shows that -
+
+- Members usage are quite similar throughout the week except Sunday.
+
+- Casual usage is slow for weekdays but weekends are more especially Saturday.
+
+- Docked bike is the most popular for both user types.
+
+#### Time of day analysis 
+How are rides distrubuted through out the day ? 
+```{r Time of Day Analysis}
+cyclistic_cleaned$time_of_day = factor(cyclistic_cleaned$time_of_day, 
+                                       levels = c("Morning", "Afternoon",
+                                             "Evening", "Night"))
+cyclistic_cleaned %>%
+    group_by(time_of_day) %>%
+    summarise(count = length(ride_id),
+              '%' = (length(ride_id) / nrow(cyclistic_cleaned)) * 100,
+              'members %' = (sum(user_type == "member") / length(ride_id)) *
+                100,
+              'casual %' = (sum(user_type == "casual") / length(ride_id)) *
+                100,)
+
+ggplot (cyclistic_cleaned) +
+  geom_bar(aes(time_of_day)) + facet_wrap(~user_type) +
+  labs(x = "Time of Day", title="Chart 04 - Distribution by Time of Day") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+The plot shows that -  
+
+- Most rides are taken in the afternoon ( 12 pm - 4 pm) 
+
+- 69% of riders in the morning (5 am - 11 am ) are members
+
+- More Casuals take rides in the night (between 7 pm and 4 am )
+
+
+#### Ride length analysis 
+```{r}
+summary(cyclistic_cleaned$ride_length_hrs)
+```
+
+summary(cyclistic_cleaned$ride_length_hrs) gives a statistical summary of the ride length that was previously calculated. It shows: 
+
+- Minimum ride length is a negative value. A negative ride length is not possible as it would mean that a person took a ride from the future to the past.
+
+- Maximum ride length is a very high value (904.72 hrs) which equals 38 days. It is not possible for one to ride for this long. 
+
+The data will be filtered for trips between 0 and 2 hrs. This will be a reasonable time frame to work with. I am assuming that most ride don't last longer that two hours. 
+
+```{r}
+cyclistic_filtered <- cyclistic_cleaned %>%
+  filter(ride_length_hrs > 0) %>%
+  filter(ride_length_hrs <= 2 )
+
+summary(cyclistic_filtered$ride_length_hrs)
+```
+
+After filtering the data, I will now determine how ride time is distributed between the two user types. 
+
+```{r}
+cyclistic_filtered %>% 
+    group_by(user_type) %>% 
+    summarise("Avg. Ride Length" =
+                mean(ride_length_hrs),
+              'Median Ride Length' = median(ride_length_hrs))
+```
+
+It can be observed from the table above that - 
+
+- Members tend to take shorter trips than casuals Or casuals take longer trips than members.
+
+- The average ride time for casuals is about 28 mins while that of members is about 15 mins. 
+
+- The median ride time for casuals is about 20 mins while that of members is about 11 mins.
+
+Riding time distribution by Day of week
+```{r}
+cyclistic_filtered$day_of_week = factor(cyclistic_filtered$day_of_week, 
+                                        levels= c("Monday", "Tuesday",
+                                                  "Wednesday", "Thursday",
+                                                  "Friday","Saturday",
+                                                  "Sunday"))
+
+ggplot(cyclistic_filtered, aes(x = day_of_week, y = ride_length_hrs,
+                               fill = user_type)) +
+    geom_boxplot() + facet_wrap(~ user_type) +
+  labs(x = "Weekday", y = "Riding time (hrs)", title = "Chart 05 - Distribution of Riding time for day of the week") +
+   theme(axis.text.x = element_text(angle = 90))
+    
+```
+
+
+From the box plot we can infer that - 
+
+- Riding time for members remains the same during the week, increasing a bit during weekends.
+
+- Casuals follow a more curve distribution, peaking on Saturday and Sunday. 
+
+
+Riding time distribution by Day of week
+```{r}
+ggplot(cyclistic_filtered) +
+  geom_boxplot(aes(x = ride_type, y = ride_length_hrs, fill = user_type)) +
+    facet_wrap(~ user_type) +
+    labs(x = "Ride type", y = "Riding time (hrs)", title="Chart 06 - Distribution of Riding time for Ride Type") +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+From the plot above we can see that - 
+
+- For both user groups, docked bikes have more riding than electric and classic bikes. Electric bikes have the least riding time. 
+
+- The riding time for docked bikes for casuals is more than that of members.
+
+
+#### Analysis of Start and End Stations 
+I am now going to find the most popular stations visited by each user group
+
+```{r}
+head(count(cyclistic_cleaned, start_station_name, user_type, 
+           sort = TRUE), n = 10)
+
+head(count(cyclistic_cleaned,end_station_name,user_type, sort = TRUE), 
+     n = 10)
+
+
+head(count(filter(cyclistic_cleaned, start_station_name == end_station_name), start_station_name, user_type, sort = TRUE), n= 10)
+```
+
+
+
+From the tables above, we can see that there are quite a number of records with ***blank*** start and end stations. This might be a data quality issue that requires more investigation. 
+
+However, we can see quite a number of recurring station from casuals. They are:
+
+1) Lake Shore Dr & Monroe St
+
+2) Streeter Dr & Grand Ave
+
+3) Millennium Park
+
+There is also a high number of casual cyclists ending trips at the same station that they started. 
+
+
+Analysis of blank station names by ride type 
+```{r}
+count(filter(cyclistic_cleaned, start_station_name =='' ),
+      start_station_name, ride_type, user_type, sort = TRUE)
+
+count(filter(cyclistic_cleaned, end_station_name =='' ),
+      end_station_name, ride_type, user_type, sort = TRUE)
+
+```
+From the tables above - 
+
+We can see that most blank stations are recorded with electric bikes with only a few records arising from classic and docked bikes. 
+
+This might be a data issue point that the Cyclistic team needs to look into. 
+
+Why are the station names are not being recorded?  
+
+It could be because riders are not starting or returning bikes at the stations.
+
+
+
+## Summary of Findings  
+The following is a summary of my observations from the analysis - 
+
+- There are more members than casuals. 
+
+- For both casuals and members, peaks month for ride are July, August and September with August being the highest of the three months. These indicates that temperature has an effect on ride frequency. Riders are more likely to ride when it is warm outside.
+
+- For all the months, we have more Members riding than Casuals. Even during cold months. This maybe because members are workers. They still have to go to work even when it is cold. 
+
+- Members usage are quite similar throughout the week except Sunday where there is slight decrease while for casuals,  usage is slow for weekdays with a spike from Friday to Sunday with Saturday having the most rides.  
+
+- Docked bike is the most popular ride type for both user types.
+
+- The most rides are taken in the afternoon ( 12 pm - 4 pm). Members ride more in the morning (5 am - 11 am ) while casuals take more rides in the night (7 pm and 4 am )
+
+- Casuals have more riding time than members.
+
+- Riding time for members remains the same during the week, increasing a bit during weekends.
+
+- Casuals follow a more curve distribution, peaking on Saturday and Sunday. 
+
+- For both user groups, docked bikes have more riding than electric and classic bikes. Electric bikes have the least riding time. 
+
+- The riding time for docked bikes for casuals is more than that of members.
+
+
+## Conclusion
+From the above analysis - 
+- We can see that members have a more fixed use for bikes than casuals. Their uses are for more routine activities, like Going to work or for exercise.
+
+- This was inferred from the fact that we have more members in the morning and evening hours. 
+
+- Also, members may have set routes when using the bikes, because the time for members remains unchanged during the week, increasing during weekends. 
+
+
+- The bikes are heavily used for recreation on the weekends, when riding time increases.
+
+- Rides are influenced by temperature
+
+
+
+## Recommendations 
+
+- Build a marketing campaign focusing on how bikes help people to get to work, while maintaining the planet green and avoid traffic. The ads could be shown on professional social networks.The ads should also be shown in the stations that casuals frequent the most i.e
+
+Lake Shore Dr & Monroe St
+
+Streeter Dr & Grand Ave
+
+Millennium Park
+
+
+- Increase benefits for riding during cold months in form of coupons and discounts, This will encourage casuals to get membership. 
+
+- There is also a high number of casual cyclists who take abnormally long trips. For my analysis, I didn't consider this long trip hours. 
+This should be investigated further to know why this is so, and hopefully draw conclusions which may help to convert them to members.
+
+- There is a high bike usage during the weekends (Friday – Sunday) among casuals. Weekend rental cost can be increased to encourage the cyclists to switch to member subscription instead.
